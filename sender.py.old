@@ -1,0 +1,114 @@
+from telethon.tl.types import (
+    MessageEntityBold,
+    MessageEntityCustomEmoji,
+    MessageEntityBlockquote,
+)
+from secrets import TARGET_CHANNEL
+
+# emoji document IDs
+EMOJI = {
+    "diamond":    5039816072253932764,
+    "long":       5449683594425410231,
+    "short":      5447183459602669338,
+    "entry":      5443127283898405358,
+    "lightning":  4956233646441760046,
+    "stoploss":   4958621433509970793,
+    "warning":    5420323339723881652,
+    "crown":      5843667185074969423,
+}
+
+
+class MessageBuilder:
+    def __init__(self):
+        self.text = ""
+        self.entities = []
+
+    def _offset(self):
+        return len(self.text.encode("utf-16-le")) // 2
+
+    def plain(self, s: str):
+        self.text += s
+        return self
+
+    def bold(self, s: str):
+        offset = self._offset()
+        self.text += s
+        length = self._offset() - offset
+        self.entities.append(MessageEntityBold(offset=offset, length=length))
+        return self
+
+    def emoji(self, fallback: str, doc_id: int):
+        offset = self._offset()
+        self.text += fallback
+        length = self._offset() - offset
+        self.entities.append(MessageEntityCustomEmoji(offset=offset, length=length, document_id=doc_id))
+        return self
+
+    def blockquote(self, s: str):
+        offset = self._offset()
+        self.text += s
+        length = self._offset() - offset
+        self.entities.append(MessageEntityBlockquote(offset=offset, length=length))
+        return self
+
+    def newline(self, n=1):
+        self.text += "\n" * n
+        return self
+
+
+def format_message(signal: dict) -> tuple[str, list]:
+    b = MessageBuilder()
+    direction_key = "long" if signal["direction"] == "LONG" else "short"
+
+    # header
+    b.emoji("💎", EMOJI["diamond"])
+    b.bold(f" #{signal['symbol']} | {signal['direction']} ")
+    b.emoji("🔼" if direction_key == "long" else "🔽", EMOJI[direction_key])
+    b.newline(2)
+
+    # entry section
+    b.blockquote("ENTRY ورود")
+    b.newline()
+    b.emoji("📥", EMOJI["entry"])
+    if len(signal["entries"]) == 1:
+        b.bold(f"EN: {signal['entries'][0]}~")
+    else:
+        b.bold(f"EN: {signal['entries'][0]} - {signal['entries'][1]}~")
+    b.newline(2)
+
+    # targets section
+    b.blockquote("TARGETS حد سود")
+    b.newline()
+    for i, t in enumerate(signal["targets"], 1):
+        b.bold(f"TARGET{i}")
+        b.emoji("🌩", EMOJI["lightning"])
+        b.bold(f": {t}")
+        b.newline()
+    b.newline()
+
+    # stoploss section
+    b.blockquote("STOPLOSS حد ضرر")
+    b.newline()
+    b.emoji("🔖", EMOJI["stoploss"])
+    b.bold(f"SL: {signal['stop_loss']}")
+    b.newline(2)
+
+    # warning
+    b.emoji("⚠️", EMOJI["warning"])
+    b.bold(f" از 5 درصد مارجین و اهرم {signal['leverage']} استفاده کنید و بعد از تارگت اول سیو سود و ریسک فری کنید ")
+    b.emoji("💎", EMOJI["diamond"])
+    b.newline(2)
+
+    # footer
+    start = b._offset()
+    b.emoji("👑", EMOJI["crown"])
+    b.plain(" @Royal_frx | رویال کریپتو")
+    end = b._offset()
+    b.entities.append(MessageEntityBlockquote(offset=start, length=end - start))
+
+    return b.text, b.entities
+
+
+async def send(sender, signal: dict):
+    text, entities = format_message(signal)
+    await sender.send_message(TARGET_CHANNEL, text, formatting_entities=entities)

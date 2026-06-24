@@ -4,7 +4,9 @@ from parsers.mahee import parse as mahee_parse
 from parsers.gcr import parse as gcr_parse
 
 CHANNELS = {
-    -1003971539633: monk_parse,
+    # Test Channel for mock data
+    # -1003971539633: gcr_parse,
+    # Channels
     -1001581833855: monk_parse,
     -1003872504487: mahee_parse,
     -1001895114921: gcr_parse,
