@@ -9,5 +9,17 @@ wheels/
 # Virtual environments
 .venv
 
+# IDE settings
+pyrightconfig.json
+
+# Environment vriables
 .env
 secrets.py
+
+# Telegram session files
+*.session
+*.session-journal
+
+# Databse files
+*.db
+*.sqlite3
