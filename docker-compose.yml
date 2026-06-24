@@ -1,0 +1,12 @@
+services:
+  copybot:
+    build: .
+    container_name: copybot
+    restart: unless-stopped
+    volumes:
+      - ./reader_session.session:/app/reader_session.session
+      - ./sender_session.session:/app/sender_session.session
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
