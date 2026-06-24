@@ -9,17 +9,19 @@ A Telegram client that monitors crypto signal channels, parses incoming signals,
 ```
 reader (Telethon user client)
     └── listens to 3 source channels
+    └── deduplicates messages by ID
     └── routes messages to channel-specific parsers
     └── passes parsed signal dict to sender
 
 sender (Telethon premium user client)
-    └── formats signal into template
-    └── sends to your target channel with premium emojis
+    └── formats signal into template with premium emojis
+    └── sends to your target channel
+    └── listens to private messages for /on /off /start commands
 ```
 
 Two independent Telethon clients run in the same async event loop:
 - **reader** — your regular account that is a member of the source channels
-- **sender** — a premium account that posts formatted signals to your channel
+- **sender** — a premium account that posts formatted signals to your channel and accepts control commands via private message
 
 ---
 
@@ -37,8 +39,8 @@ Two independent Telethon clients run in the same async event loop:
 
 ```
 copyBot/
-├── main.py           # boots both clients, registers handlers
-├── listener.py       # routes incoming messages to parsers
+├── main.py           # boots both clients, registers command handlers
+├── listener.py       # deduplication, routing, parser dispatch
 ├── sender.py         # formats and sends signals to target channel
 ├── secrets.py        # loads credentials from environment variables
 ├── parsers/
@@ -48,6 +50,7 @@ copyBot/
 │   └── gcr.py
 ├── Dockerfile
 ├── docker-compose.yml
+├── .env              # your actual credentials (never commit this)
 ├── .env.example      # template for credentials
 └── .gitignore
 ```
@@ -57,8 +60,8 @@ copyBot/
 ## Requirements
 
 - Docker + Docker Compose
-- A Telegram account (reader) that is a member of the source channels
-- A Telegram **premium** account (sender) that is an admin of your target channel
+- A Telegram account **(reader)** that is a member of the source channels
+- A Telegram **premium** account **(sender)** that is an admin of your target channel
 - API credentials from [my.telegram.org](https://my.telegram.org) for both accounts
 
 ---
@@ -97,11 +100,11 @@ PYTHONUNBUFFERED=1
 4. Fill in any app name and select **Desktop** as platform
 5. Copy `api_id` and `api_hash`
 
-Repeat for both accounts (reader and sender).
+Repeat for **both accounts** (reader and sender).
 
 #### How to get your channel ID
 
-Forward any message from your channel to [@userinfobot](https://t.me/userinfobot) — it will return the channel ID (negative number starting with `-100`).
+Forward any message from your channel to [@userinfobot](https://t.me/userinfobot) — it returns the channel ID (negative number starting with `-100`).
 
 ---
 
@@ -113,12 +116,12 @@ On first run, Telethon needs to authenticate both accounts interactively. Run:
 docker compose run --rm copybot uv run main.py
 ```
 
-- Enter the **reader account** phone number and the code Telegram sends you
-- Enter the **sender account** phone number and the code Telegram sends you
+- Enter the **reader account** phone number and the login code Telegram sends you
+- Enter the **sender (premium) account** phone number and the login code Telegram sends you
 
-Session files (`reader_session.session`, `sender_session.session`) will be created in the project directory. Press `Ctrl+C` after both sessions are authenticated.
+Session files (`reader_session.session`, `sender_session.session`) will be created in the project directory. Press `Ctrl+C` after both are authenticated.
 
-> ⚠️ Session files are mounted as volumes and never baked into the Docker image. Keep them safe and never commit them.
+> ⚠️ Session files are mounted as Docker volumes and never baked into the image. Keep them safe and never commit them.
 
 ---
 
@@ -142,9 +145,21 @@ docker compose down
 
 ---
 
+## Controlling the Bot
+
+Send private messages directly to the **sender (premium) account** on Telegram:
+
+| Command | Action |
+|---|---|
+| `/on` | Resume forwarding signals |
+| `/off` | Pause forwarding signals |
+| `/start` | Show premium emoji reference |
+
+---
+
 ## Signal Format
 
-Each parsed signal is passed as a dict:
+Each parsed signal is passed internally as a dict:
 
 ```python
 {
@@ -160,10 +175,40 @@ Each parsed signal is passed as a dict:
 
 ---
 
+## Output Template
+
+```
+💎 #SYMBOL | DIRECTION 🔼/🔽
+
+ENTRY ورود
+📥 EN: price~
+
+TARGETS حد سود
+TARGET1🌩: price
+TARGET2🌩: price
+TARGET3🌩: price
+TARGET4🌩: price  (hidden if not available)
+TARGET5🌩: price  (hidden if not available)
+
+STOPLOSS حد ضرر
+🔖 SL: price
+
+⚠️ از 5 درصد مارجین و اهرم LEVERAGEx استفاده کنید و بعد از تارگت اول سیو سود و ریسک فری کنید 💎
+
+👑 @Royal_frx | رویال کریپتو
+```
+
+> Section headers are rendered as blockquotes. All emojis are premium custom emojis sent via the premium sender account.
+
+---
+
 ## Adding a New Channel
 
 1. Add the channel ID and its parser to `listener.py`:
+
 ```python
+from parsers.new_channel import parse as new_parse
+
 CHANNELS = {
     -1001234567890: new_parse,
 }
@@ -176,6 +221,7 @@ CHANNELS = {
 
 ## Notes
 
-- Premium emojis in the output template require the **sender account to be a Telegram Premium subscriber** and an **admin of the target channel**
-- Session files persist across container restarts via Docker volumes — you only need to authenticate once
-- The bot handles both plain-text and premium-emoji formatted messages from source channels (strips markdown artifacts automatically)
+- Premium emojis require the **sender account to be a Telegram Premium subscriber** and an **admin of the target channel**
+- Duplicate message protection is handled via a fixed-size deque (last 1000 message IDs) — prevents double-forwarding on network reconnects
+- The parser strips Telegram markdown artifacts (`**`) from premium-emoji messages before parsing
+- Session files persist across container restarts via Docker volumes — authentication is only needed once
